@@ -37,8 +37,8 @@ jobs:
         run: west update
 
       - name: West Build
-        # FIXED: Board is 'keychron', Shield is 'keychron_b1_pro'
-        run: west build -b keychron app -- -DSHIELD=keychron_b1_pro
+        # FIXED: Board is 'keychron', Shield is 'keychron_b1_us' (matches your .keymap file)
+        run: west build -b keychron app -- -DSHIELD=keychron_b1_us
 
       - name: Rename Artifact
         run: cp build/zephyr/zmk.uf2 keychron_b1_pro_firmware.uf2
