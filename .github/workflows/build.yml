@@ -37,7 +37,7 @@ jobs:
         run: west update
 
       - name: West Build
-        run: west build -b keychron_b1_pro app
+        run: west build -b keychron_nrf52840 app -- -DSHIELD=keychron_b1_pro
 
       - name: Rename Artifact
         run: cp build/zephyr/zmk.uf2 keychron_b1_pro_firmware.uf2
