@@ -73,7 +73,7 @@
             timeout-ms = <1000>;
             layers =< 1 3>;
             //slow-release = <true>;
-            key-positions = <60>; //fn+b
+            key-positions = <10>; //fn+b --> changed to fn+0 (fn+Zero)
             bindings = <&out OUT_BAT>;
         };
 
