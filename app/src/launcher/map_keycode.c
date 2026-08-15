@@ -626,8 +626,15 @@ void generate_via_keymaps(void)
                         gen_via_keymaps[layer][row][column] =KC_BOOT;
 
                     } else if(memcmp(behavior_dev,"GRAVE_ESCAPE",12)==0){
-                        
+
                         gen_via_keymaps[layer][row][column] =QK_GRAVE_ESCAPE;
+
+                    } else if(memcmp(behavior_dev,"BSPC_DEL",8)==0){
+                        // Shift-morph: report the unshifted side so the Launcher shows
+                        // Backspace. via_ee_read_keymap() only re-applies a stored keycode
+                        // when it differs from this value, so reporting KC_BACKSPACE keeps
+                        // a saved layout from overwriting the morph binding at boot.
+                        gen_via_keymaps[layer][row][column] =KC_BACKSPACE;
 
                     } else if(memcmp(behavior_dev,"user_custom",11)==0) {
 
