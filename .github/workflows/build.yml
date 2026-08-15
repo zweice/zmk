@@ -24,7 +24,7 @@ jobs:
             zephyr/
             bootloader/
             zmk/
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('app/west.yml') }}
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('app/west.yml', '0001-esb-nrf-fix.patch') }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.cache-name }}-
             ${{ runner.os }}-build-
@@ -35,6 +35,20 @@ jobs:
 
       - name: West Update
         run: west update
+
+      - name: Patch Zephyr
+        # Required by Keychron's README: the ESB/nRF fix re-vectors the shared RADIO IRQ
+        # dynamically between the BLE controller and the 2.4G stack, adds the USB SOF
+        # counter, and defines bt_bas_set_battery_level_fix().
+        # Idempotent: a restored cache may already contain the patched tree.
+        working-directory: zephyr
+        run: |
+          if git apply --reverse --check ../0001-esb-nrf-fix.patch 2>/dev/null; then
+            echo "Patch already applied (restored from cache) - skipping."
+          else
+            git apply --verbose ../0001-esb-nrf-fix.patch
+            echo "Patch applied."
+          fi
 
       - name: West Build
         # FIXED: Board is 'keychron', Shield is 'keychron_b1_us' (matches your .keymap file)

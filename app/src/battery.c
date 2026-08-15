@@ -24,14 +24,11 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/usb.h>
 #include <zephyr/pm/pm.h>
 #include <zephyr/pm/device.h>
-
 #define BAT_VOLTAGE_LOW 3320
 #define BAT_VOLTAGE_SHUTDOWN (3045)
-
 void zmk_battery_check(void);
 void check_voltage_when_boot(void);
 bool is_usb_power_present(void);
-
 static uint8_t last_state_of_charge = 100;
 static bool bat_shutdown; 
 static const struct device *adc = DEVICE_DT_GET(DT_NODELABEL(adc));
@@ -42,14 +39,14 @@ uint8_t zmk_battery_state_of_charge() { return last_state_of_charge; }
 #if DT_HAS_CHOSEN(zmk_battery)
 static const struct device *const battery = DEVICE_DT_GET(DT_CHOSEN(zmk_battery));
 #else
-#warning "Using a node labeled BATTERY for the battery sensor is deprecated. Set a zmk,battery chosen node instead. (Ignore this if you don't have a battery sensor.)"
+#warning                                                                                           \
+    "Using a node labeled BATTERY for the battery sensor is deprecated. Set a zmk,battery chosen node instead. (Ignore this if you don't have a battery sensor.)"
 static const struct device *battery;
 #endif
 
-// FIXED: Removed undefined Keychron externs
-// extern struct bt_conn *destination_connection();
-// extern int bt_bas_set_battery_level_fix(struct bt_conn *conn,uint8_t level);
-// extern void bt_conn_unref(struct bt_conn *conn);
+extern struct bt_conn *destination_connection();
+extern int bt_bas_set_battery_level_fix(struct bt_conn *conn,uint8_t level);
+extern void bt_conn_unref(struct bt_conn *conn);
 
 static int zmk_battery_update(const struct device *battery) {
     struct sensor_value state_of_charge;
@@ -88,14 +85,10 @@ static int zmk_battery_update(const struct device *battery) {
 
         LOG_DBG("Setting BAS GATT battery level to %d.", last_state_of_charge);
 
-        // FIXED: Use standard ZMK function instead of broken _fix version
-        rc = bt_bas_set_battery_level(last_state_of_charge);
-        
-        // Removed broken Keychron custom connection logic
-        /* struct bt_conn *conn=destination_connection();
+        // rc = bt_bas_set_battery_level(last_state_of_charge);
+        struct bt_conn *conn=destination_connection();
         rc = bt_bas_set_battery_level_fix(conn,last_state_of_charge);
         bt_conn_unref(conn);
-        */
 
         if (rc != 0) {
             LOG_WRN("Failed to set BAS GATT battery level (err %d)", rc);
