@@ -398,10 +398,75 @@ uint8_t get_charge_led_state(void)
 {
 	return charge_led_state;
 }
+/* Keep-awake indicator: the blue (BT) LED stays lit while keep-awake runs.
+ * BLE pairing/reconnect blinks still take priority; once they settle the LED
+ * returns to solid. */
+static const struct led_effect keep_awake_led_effect = LED_EFFECT_LED_ON(LED_COLOR(150, 150, 150));
+static bool keep_awake_led_on;
+
+void led_keep_awake_set(bool on)
+{
+	keep_awake_led_on = on;
+	leds[LED_BLUE].effect = on ? &keep_awake_led_effect
+				   : &led_peer_state_effect[LED_PEER_STATE_DISCONNECTED];
+	led_update(&leds[LED_BLUE]);
+}
+
+/* Confirmation blinks for the wireless time-limit setting (1..4 blinks). */
+#define KA_BLINK_MS 250
+#define _KA_TIK(i, ...)								\
+	{ .color = __VA_ARGS__, .substep_count = 1, .substep_time = KA_BLINK_MS },	\
+	{ .color = LED_NOCOLOR(), .substep_count = 1, .substep_time = KA_BLINK_MS }
+#define KA_BLINK(n)								\
+	{									\
+		.steps = ((const struct led_effect_step[]) {			\
+			{ .color = LED_NOCOLOR(), .substep_count = 1,		\
+			  .substep_time = KA_BLINK_MS },			\
+			LISTIFY(n, _KA_TIK, (,), LED_COLOR(150, 150, 150))	\
+		}),								\
+		.step_count = (2 * (n) + 1),					\
+		.loop_forever = false,						\
+	}
+static const struct led_effect keep_awake_blink_effects[] = {
+	KA_BLINK(1), KA_BLINK(2), KA_BLINK(3), KA_BLINK(4),
+};
+
+/* Blink the indicator `count` times (1..4). Returns how long the pattern takes
+ * in ms, so the caller can restore the steady state afterwards. */
+uint32_t led_keep_awake_blink(uint8_t count)
+{
+	if (count < 1 || count > ARRAY_SIZE(keep_awake_blink_effects)) {
+		return 0;
+	}
+	leds[LED_BLUE].effect = &keep_awake_blink_effects[count - 1];
+	led_update(&leds[LED_BLUE]);
+	return (2 * count + 1) * KA_BLINK_MS;
+}
+
+/* Re-assert the indicator if something else (power-on sweep, mode switch)
+ * turned the LED off in the meantime. Leaves active BLE blink patterns alone. */
+void led_keep_awake_refresh(void)
+{
+	const struct led_effect *e = leds[LED_BLUE].effect;
+	if (!keep_awake_led_on || e == &keep_awake_led_effect ||
+	    e == &led_peer_state_effect[LED_PEER_STATE_PAIR] ||
+	    e == &led_peer_state_effect[LED_PEER_STATE_RECONN] ||
+	    (e >= &keep_awake_blink_effects[0] &&
+	     e <= &keep_awake_blink_effects[ARRAY_SIZE(keep_awake_blink_effects) - 1])) {
+		return;
+	}
+	led_keep_awake_set(true);
+}
+
 void blue_led_set_state(uint8_t led_state)
 {
 		if(get_current_transport()!=ZMK_TRANSPORT_BLE) return;
 		LOG_DBG("set:%d",led_state);
+		if (keep_awake_led_on && (led_state == LED_PEER_STATE_CONNECTED ||
+					  led_state == LED_PEER_STATE_DISCONNECTED)) {
+			led_keep_awake_set(true);
+			return;
+		}
 
 		if((leds[LED_BLUE].effect !=&led_peer_state_effect[led_state]) || k_timer_remaining_get(&leds[LED_BLUE].timer)==0)// k_work_delayable_remaining_get(&leds[LED_BLUE].work)==0)
 		{

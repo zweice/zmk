@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+
+description: Keep-awake - periodically taps an unused key so the host never idles
+
+compatible: "zmk,behavior-keep-awake"
+
+include: one_param.yaml
+
+properties:
+  keycode:
+    type: int
+    default: 0x73
+    description: HID keyboard usage id to tap (default F24)
+  interval-ms:
+    type: int
+    default: 30000

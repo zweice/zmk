@@ -92,6 +92,24 @@
             bindings = <&out OUT_BAT>;
         };
 
+        /* Keep-awake: Fn + M toggles it (blue LED solid while on).
+         * Taps F24 every 30 s. USB: runs until toggled off.
+         * Wireless: stops after the time limit chosen with Fn + N. */
+        combo_keep_awake {
+            timeout-ms = <1000>;
+            layers = <1 3>;
+            key-positions = <62>; // M
+            bindings = <&keep_awake KA_TOG>;
+        };
+        /* Fn + N cycles the wireless limit 10 -> 30 -> 60 min -> unlimited.
+         * Blue LED blinks 1/2/3/4 times to confirm. Saved across reboots. */
+        combo_keep_awake_limit {
+            timeout-ms = <1000>;
+            layers = <1 3>;
+            key-positions = <61>; // N
+            bindings = <&keep_awake KA_CYCLE>;
+        };
+
         combo_win_l {
             timeout-ms = <1000>;
             layers =< 1 3>;
