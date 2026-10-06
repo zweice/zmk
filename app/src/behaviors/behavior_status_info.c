@@ -100,9 +100,6 @@ static void build_status(char *buf, size_t size) {
         int32_t left = zmk_keep_awake_remaining_min();
         if (left >= 0) {
             p = append(buf, size, p, " | Keep-Awake an, Rest %d von %u min", left, limit);
-        } else if (limit) {
-            /* on USB the limit does not apply; show the stored wireless setting anyway */
-            p = append(buf, size, p, " | Keep-Awake an, USB ohne Limit (Funk %u min)", limit);
         } else {
             p = append(buf, size, p, " | Keep-Awake an, ohne Limit");
         }

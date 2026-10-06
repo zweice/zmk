@@ -2,16 +2,15 @@
  * Keep-awake behavior.
  *
  *   &keep_awake KA_TOG    start / stop
- *   &keep_awake KA_CYCLE  cycle the wireless time limit: 10 -> 30 -> 60 min -> unlimited
+ *   &keep_awake KA_CYCLE  cycle the time limit: 10 -> 30 -> 60 min -> unlimited
  *
  * While active, taps an otherwise unused key (F24 by default) every
  * `interval-ms`, so the host's idle timer resets and Windows neither locks the
  * screen nor goes to sleep.
  *
- * - USB (cable): runs until toggled off.
- * - Wireless (BLE / 2.4G dongle): stops on its own after the selected time
- *   limit (default 10 min, stored in flash). The window restarts whenever the
- *   keyboard switches from USB to wireless.
+ * Stops on its own after the selected time limit (default 10 min, stored in
+ * flash), on USB, Bluetooth and the 2.4G dongle alike. The window starts when
+ * keep-awake is switched on and restarts whenever the limit is changed.
  *
  * The tap is injected straight into the HID report instead of raising a
  * keycode event, so caps-word, combos and the activity/sleep logic never see
@@ -54,8 +53,7 @@ static uint8_t limit_idx; /* persisted */
 
 static bool active;
 static bool key_down;
-static bool was_wireless;
-static int64_t wireless_since;
+static int64_t started_at;
 
 /* implemented in leds.c (blue/BT LED used as indicator) */
 void led_keep_awake_set(bool on);
@@ -92,11 +90,6 @@ static int keep_awake_settings_load_cb(const char *name, size_t len, settings_re
 }
 #endif
 
-static bool on_wireless(void) {
-    enum zmk_transport t = zmk_endpoints_selected().transport;
-    return t == ZMK_TRANSPORT_BLE || t == ZMK_TRANSPORT_24G;
-}
-
 /* ---- read-only state for the status-info behavior (include/zmk/keep_awake.h) ---- */
 bool zmk_keep_awake_is_active(void) { return active; }
 
@@ -104,13 +97,10 @@ uint16_t zmk_keep_awake_limit_min(void) { return limits_min[limit_idx]; }
 
 int32_t zmk_keep_awake_remaining_min(void) {
     uint16_t limit = limits_min[limit_idx];
-    if (!active || !limit || !on_wireless()) {
+    if (!active || !limit) {
         return -1;
     }
-    if (!was_wireless) {
-        return limit; /* just switched to wireless; window starts on the next tick */
-    }
-    int64_t left_ms = (int64_t)limit * 60 * 1000 - (k_uptime_get() - wireless_since);
+    int64_t left_ms = (int64_t)limit * 60 * 1000 - (k_uptime_get() - started_at);
     return left_ms <= 0 ? 0 : (int32_t)((left_ms + 59999) / 60000);
 }
 
@@ -145,16 +135,9 @@ static void keep_awake_work_handler(struct k_work *work) {
         return;
     }
 
-    int64_t now = k_uptime_get();
-    bool wireless = on_wireless();
-    if (wireless && !was_wireless) {
-        wireless_since = now; /* (re)start the wireless window */
-    }
-    was_wireless = wireless;
-
     uint16_t limit = limits_min[limit_idx];
-    if (wireless && limit && (now - wireless_since) >= (int64_t)limit * 60 * 1000) {
-        LOG_INF("keep-awake: wireless limit of %u min reached", limit);
+    if (limit && (k_uptime_get() - started_at) >= (int64_t)limit * 60 * 1000) {
+        LOG_INF("keep-awake: limit of %u min reached", limit);
         stop();
         return;
     }
@@ -171,10 +154,8 @@ static void toggle(void) {
         return;
     }
     active = true;
-    was_wireless = on_wireless();
-    wireless_since = k_uptime_get();
-    LOG_INF("keep-awake on (%s, wireless limit %u min)", was_wireless ? "wireless" : "usb",
-            limits_min[limit_idx]);
+    started_at = k_uptime_get();
+    LOG_INF("keep-awake on (limit %u min, 0 = unlimited)", limits_min[limit_idx]);
     led_keep_awake_set(true);
     zmk_activity_inhibit_sleep(true);
     k_work_schedule(&keep_awake_work, K_NO_WAIT);
@@ -182,9 +163,9 @@ static void toggle(void) {
 
 static void cycle_limit(void) {
     limit_idx = (limit_idx + 1) % ARRAY_SIZE(limits_min);
-    /* a new limit also restarts the running wireless window */
-    wireless_since = k_uptime_get();
-    LOG_INF("keep-awake wireless limit: %u min (0 = unlimited)", limits_min[limit_idx]);
+    /* a new limit also restarts the running window */
+    started_at = k_uptime_get();
+    LOG_INF("keep-awake limit: %u min (0 = unlimited)", limits_min[limit_idx]);
 
     uint32_t ms = led_keep_awake_blink(limit_idx + 1);
     k_work_reschedule(&led_restore_work, K_MSEC(ms + 100));
