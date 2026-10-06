@@ -38,6 +38,7 @@
 #include <zmk/hid.h>
 #include <dt-bindings/zmk/hid_usage_pages.h>
 #include <dt-bindings/zmk/keep_awake.h>
+#include <zmk/keep_awake.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -94,6 +95,23 @@ static int keep_awake_settings_load_cb(const char *name, size_t len, settings_re
 static bool on_wireless(void) {
     enum zmk_transport t = zmk_endpoints_selected().transport;
     return t == ZMK_TRANSPORT_BLE || t == ZMK_TRANSPORT_24G;
+}
+
+/* ---- read-only state for the status-info behavior (include/zmk/keep_awake.h) ---- */
+bool zmk_keep_awake_is_active(void) { return active; }
+
+uint16_t zmk_keep_awake_limit_min(void) { return limits_min[limit_idx]; }
+
+int32_t zmk_keep_awake_remaining_min(void) {
+    uint16_t limit = limits_min[limit_idx];
+    if (!active || !limit || !on_wireless()) {
+        return -1;
+    }
+    if (!was_wireless) {
+        return limit; /* just switched to wireless; window starts on the next tick */
+    }
+    int64_t left_ms = (int64_t)limit * 60 * 1000 - (k_uptime_get() - wireless_since);
+    return left_ms <= 0 ? 0 : (int32_t)((left_ms + 59999) / 60000);
 }
 
 static void release_key(void) {

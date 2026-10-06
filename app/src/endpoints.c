@@ -35,6 +35,51 @@ extern void zmk_24g_init(void);
 extern int zmk_24g_send_report(uint8_t *data,uint8_t len) ;
 #endif 
 int zmk_hog_send_mouse_report(report_mouse_t *report);
+
+#if CONFIG_ZMK_NRF_24G
+/*
+ * Reliable-ish 2.4G sending.
+ *
+ * Keychron's closed ESB library (lib_nrf_esb_24G.a) queues every report in a
+ * 64-slot ring buffer and gives up after 6 transmit attempts, silently
+ * dropping the report. Because each keyboard report is a full snapshot of the
+ * pressed keys, one lost snapshot shows up on the host as a missing letter or
+ * as two letters in the wrong order ("teh").
+ *
+ * On ring overflow the library also pops the head entry, i.e. the report that
+ * is in flight, and when that transmission then succeeds it pops once more,
+ * throwing away a second, never-sent report.
+ *
+ * Countermeasures (no change to the library needed):
+ *  1. Send every report twice. A duplicate snapshot is a no-op for the host,
+ *     but it doubles the retry budget for each state.
+ *  2. Never let the ring buffer overflow: wait briefly for room instead.
+ */
+extern uint32_t ringbuf_used_get(void);
+#define ZMK_24G_RING_SLOTS 64
+#define ZMK_24G_RING_HEADROOM 4
+#define ZMK_24G_REPORT_COPIES 2
+#define ZMK_24G_MAX_WAIT_MS 120
+
+static int send_24g_reliable(uint8_t *data, uint8_t len) {
+    int err = 0;
+    for (int copy = 0; copy < ZMK_24G_REPORT_COPIES; copy++) {
+        if (!k_is_in_isr()) {
+            for (int waited = 0; waited < ZMK_24G_MAX_WAIT_MS &&
+                                 ringbuf_used_get() >= ZMK_24G_RING_SLOTS - ZMK_24G_RING_HEADROOM;
+                 waited += 2) {
+                k_msleep(2);
+            }
+        }
+        err = zmk_24g_send_report(data, len);
+        if (err) {
+            /* not connected / pairing / buffer still full: don't pile up copies */
+            break;
+        }
+    }
+    return err;
+}
+#endif
 void keyboad_led_set_onoff(uint8_t led_state);
 void bt_24g_switch_reset(void);
 uint8_t get_mode_status(void);
@@ -191,7 +236,7 @@ static int send_keyboard_report(void) {
     case ZMK_TRANSPORT_24G:
         {
 
-            int err=zmk_24g_send_report((uint8_t *)keyboard_report, sizeof(*keyboard_report));
+            int err=send_24g_reliable((uint8_t *)keyboard_report, sizeof(*keyboard_report));
             if (err) {
                 LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
             }
@@ -233,7 +278,7 @@ static int send_consumer_report(void) {
 #if CONFIG_ZMK_NRF_24G      
      case ZMK_TRANSPORT_24G:
         {
-            int err=zmk_24g_send_report((uint8_t *)consumer_report, sizeof(*consumer_report));
+            int err=send_24g_reliable((uint8_t *)consumer_report, sizeof(*consumer_report));
             if (err) {
                 LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
             }
@@ -496,7 +541,7 @@ int host_mouse_send(report_mouse_t *rp) {
     case ZMK_TRANSPORT_24G:
         {
 
-            int err=zmk_24g_send_report((uint8_t*)rp,sizeof(report_mouse_t));
+            int err=send_24g_reliable((uint8_t*)rp,sizeof(report_mouse_t));
             if (err) {
                 LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
             }

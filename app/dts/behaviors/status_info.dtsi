@@ -1,0 +1,13 @@
+/*
+ * SPDX-License-Identifier: MIT
+ */
+
+/ {
+    behaviors {
+        /omit-if-no-ref/ status_info: behavior_status_info {
+            compatible = "zmk,behavior-status-info";
+            label = "STATUS_INFO";
+            #binding-cells = <0>;
+        };
+    };
+};

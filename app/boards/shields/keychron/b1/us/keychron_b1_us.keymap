@@ -110,6 +110,14 @@
             bindings = <&keep_awake KA_CYCLE>;
         };
 
+        /* Fn + - types a status line: battery, connection, uptime, keep-awake */
+        combo_status_info {
+            timeout-ms = <1000>;
+            layers = <1 3>;
+            key-positions = <25>; // -
+            bindings = <&status_info>;
+        };
+
         combo_win_l {
             timeout-ms = <1000>;
             layers =< 1 3>;

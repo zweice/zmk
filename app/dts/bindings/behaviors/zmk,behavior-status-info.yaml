@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+
+description: Types a one-line status report (battery, connection, uptime, keep-awake)
+
+compatible: "zmk,behavior-status-info"
+
+include: zero_param.yaml
