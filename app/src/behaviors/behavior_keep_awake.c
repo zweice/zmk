@@ -15,7 +15,8 @@
  *
  * The tap is injected straight into the HID report instead of raising a
  * keycode event, so caps-word, combos and the activity/sleep logic never see
- * it. The keyboard itself will therefore still go to sleep normally.
+ * it. Deep sleep (2 h without a real key press, battery only) is blocked
+ * while keep-awake runs, so "unlimited" works on battery too.
  *
  * Indicator: the blue (BT) LED stays lit while active. Cycling the time limit
  * blinks it 1-4 times (1 = 10 min, 2 = 30 min, 3 = 60 min, 4 = unlimited).
@@ -31,6 +32,7 @@
 #include <zephyr/settings/settings.h>
 #include <drivers/behavior.h>
 
+#include <zmk/activity.h>
 #include <zmk/behavior.h>
 #include <zmk/endpoints.h>
 #include <zmk/hid.h>
@@ -108,6 +110,7 @@ static void stop(void) {
     k_work_cancel_delayable(&led_restore_work);
     release_key();
     led_keep_awake_set(false);
+    zmk_activity_inhibit_sleep(false);
     LOG_INF("keep-awake off");
 }
 
@@ -155,6 +158,7 @@ static void toggle(void) {
     LOG_INF("keep-awake on (%s, wireless limit %u min)", was_wireless ? "wireless" : "usb",
             limits_min[limit_idx]);
     led_keep_awake_set(true);
+    zmk_activity_inhibit_sleep(true);
     k_work_schedule(&keep_awake_work, K_NO_WAIT);
 }
 

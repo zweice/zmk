@@ -36,6 +36,17 @@ static enum zmk_activity_state activity_state;
 
 static uint32_t activity_last_uptime;
 
+/* Set while keep-awake runs so "unlimited" really is unlimited on battery. */
+static bool sleep_inhibited;
+
+void zmk_activity_inhibit_sleep(bool inhibit) {
+    sleep_inhibited = inhibit;
+    if (!inhibit) {
+        /* start a fresh sleep countdown instead of sleeping right away */
+        activity_last_uptime = k_uptime_get();
+    }
+}
+
 #define MAX_IDLE_MS CONFIG_ZMK_IDLE_TIMEOUT
 
 #if IS_ENABLED(CONFIG_ZMK_SLEEP)
@@ -77,7 +88,7 @@ void activity_work_handler(struct k_work *work) {
     int32_t current = k_uptime_get();
     int32_t inactive_time = current - activity_last_uptime;
 #if IS_ENABLED(CONFIG_ZMK_SLEEP)
-    if ((inactive_time > MAX_SLEEP_MS || activity_state == ZMK_ACTIVITY_SLEEP) && !is_usb_power_present() && all_keys_up()) {
+    if (!sleep_inhibited && (inactive_time > MAX_SLEEP_MS || activity_state == ZMK_ACTIVITY_SLEEP) && !is_usb_power_present() && all_keys_up()) {
         // Put devices in suspend power mode before sleeping
         void leds_turnoff(void);
         leds_turnoff();
