@@ -19,6 +19,14 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/events/sensor_event.h>
 
 #include <zmk/activity.h>
+#include <zmk/endpoints.h>
+#include <zmk/kb_clock.h>
+#include <zephyr/sys/reboot.h>
+#if IS_ENABLED(CONFIG_ZMK_BLE)
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
+#endif
 
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 #include <zmk/usb.h>
@@ -68,11 +76,55 @@ int set_state(enum zmk_activity_state state) {
 
 enum zmk_activity_state zmk_activity_get_state() { return activity_state; }
 
+/*
+ * Light sleep (selectable instead of deep sleep, see behavior_kb_clock.c):
+ * the chip stays in System ON so the uptime counter - and with it the
+ * keyboard clock - keeps running. LEDs and the radio are switched off; the
+ * first key press then warm-reboots the keyboard exactly like waking from
+ * deep sleep does (the waking key press is consumed, as with deep sleep),
+ * and the clock is carried across the reboot.
+ */
+static bool light_sleeping;
+
+#if IS_ENABLED(CONFIG_ZMK_BLE)
+static void disconnect_cb(struct bt_conn *conn, void *data) {
+    bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+}
+#endif
+#if CONFIG_ZMK_NRF_24G
+extern struct k_timer poll_timer; /* Keychron 2.4G lib: drives all ESB traffic */
+#endif
+
+static void radio_quiet(void) {
+    switch (zmk_endpoints_selected().transport) {
+#if CONFIG_ZMK_NRF_24G
+    case ZMK_TRANSPORT_24G:
+        k_timer_stop(&poll_timer);
+        break;
+#endif
+#if IS_ENABLED(CONFIG_ZMK_BLE)
+    case ZMK_TRANSPORT_BLE:
+        bt_le_adv_stop();
+        bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_cb, NULL);
+        break;
+#endif
+    default:
+        break;
+    }
+}
+
 int activity_event_listener(const zmk_event_t *eh) {
     activity_last_uptime = k_uptime_get();
     struct zmk_position_state_changed *pos_state;
     
     pos_state = as_zmk_position_state_changed(eh);
+    if (light_sleeping && pos_state && pos_state->state) {
+        /* this listener is linked before keymap/combos, so nothing has been sent yet */
+        LOG_INF("waking from light sleep: warm reboot");
+        zmk_clock_save_for_reboot();
+        sys_reboot(SYS_REBOOT_WARM);
+        return ZMK_EV_EVENT_HANDLED;
+    }
     if(pos_state)
     {
         if(pos_state->state)
@@ -89,6 +141,18 @@ void activity_work_handler(struct k_work *work) {
     int32_t inactive_time = current - activity_last_uptime;
 #if IS_ENABLED(CONFIG_ZMK_SLEEP)
     if (!sleep_inhibited && (inactive_time > MAX_SLEEP_MS || activity_state == ZMK_ACTIVITY_SLEEP) && !is_usb_power_present() && all_keys_up()) {
+        bool bat_is_shutdown(void);
+        if (zmk_clock_light_sleep() && !bat_is_shutdown()) {
+            if (!light_sleeping) {
+                void leds_turnoff(void);
+                leds_turnoff();
+                radio_quiet();
+                light_sleeping = true;
+                LOG_INF("light sleep (clock keeps running)");
+                set_state(ZMK_ACTIVITY_SLEEP);
+            }
+            return;
+        }
         // Put devices in suspend power mode before sleeping
         void leds_turnoff(void);
         leds_turnoff();

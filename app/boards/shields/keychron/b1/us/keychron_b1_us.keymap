@@ -68,6 +68,16 @@
     };
    
 
+    /* Fn + T: tap = type the time (HH:MM), hold 0.8 s = set the clock */
+    clock_ht: clock_ht {
+        compatible = "zmk,behavior-hold-tap";
+        label = "CLOCK_HT";
+        #binding-cells = <2>;
+        flavor = "tap-preferred";
+        tapping-term-ms = <800>;
+        bindings = <&kb_clock>, <&kb_clock>;
+    };
+
     combos1 {
         compatible = "zmk,combos";
         /* Factory Reset: Remapped to Fn + C + W */
@@ -116,6 +126,21 @@
             layers = <1 3>;
             key-positions = <25>; // -
             bindings = <&status_info>;
+        };
+
+        /* Fn + T: tap types the time, hold enters set mode (then type 1934 or 19:34) */
+        combo_clock {
+            timeout-ms = <1000>;
+            layers = <1 3>;
+            key-positions = <33>; // T
+            bindings = <&clock_ht CLK_SET CLK_TYPE>;
+        };
+        /* Fn + Q: sleep mode deep <-> light (LED blinks 1x = deep, 2x = light) */
+        combo_sleep_mode {
+            timeout-ms = <1000>;
+            layers = <1 3>;
+            key-positions = <29>; // Q
+            bindings = <&kb_clock CLK_SLEEP>;
         };
 
         combo_win_l {

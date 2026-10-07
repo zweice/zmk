@@ -443,6 +443,19 @@ uint32_t led_keep_awake_blink(uint8_t count)
 	return (2 * count + 1) * KA_BLINK_MS;
 }
 
+/* Clock set mode: fast blink until digits are entered. */
+static const struct led_effect clock_set_led_effect = LED_EFFECT_LED_BLINK(120, LED_COLOR(150, 150, 150));
+
+void led_clock_set_mode(bool on)
+{
+	if (on) {
+		leds[LED_BLUE].effect = &clock_set_led_effect;
+		led_update(&leds[LED_BLUE]);
+	} else if (leds[LED_BLUE].effect == &clock_set_led_effect) {
+		led_keep_awake_set(keep_awake_led_on);
+	}
+}
+
 /* Re-assert the indicator if something else (power-on sweep, mode switch)
  * turned the LED off in the meantime. Leaves active BLE blink patterns alone. */
 void led_keep_awake_refresh(void)
@@ -451,6 +464,7 @@ void led_keep_awake_refresh(void)
 	if (!keep_awake_led_on || e == &keep_awake_led_effect ||
 	    e == &led_peer_state_effect[LED_PEER_STATE_PAIR] ||
 	    e == &led_peer_state_effect[LED_PEER_STATE_RECONN] ||
+	    e == &clock_set_led_effect ||
 	    (e >= &keep_awake_blink_effects[0] &&
 	     e <= &keep_awake_blink_effects[ARRAY_SIZE(keep_awake_blink_effects) - 1])) {
 		return;

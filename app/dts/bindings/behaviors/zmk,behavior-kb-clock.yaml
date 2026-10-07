@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+
+description: Keyboard wall clock (type / set) and deep-vs-light sleep switch
+
+compatible: "zmk,behavior-kb-clock"
+
+include: one_param.yaml

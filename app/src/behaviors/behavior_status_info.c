@@ -26,6 +26,9 @@
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
 #include <zmk/usb.h>
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KB_CLOCK)
+#include <zmk/kb_clock.h>
+#endif
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KEEP_AWAKE)
 #include <zmk/keep_awake.h>
 #endif
@@ -87,6 +90,10 @@ static void build_status(char *buf, size_t size) {
         p = append(buf, size, p, " | an seit %u Tagen", up_min / (24 * 60));
     }
 
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KB_CLOCK)
+    p = append(buf, size, p, " | Schlaf %s", zmk_clock_light_sleep() ? "leicht" : "tief");
+#endif
+
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KEEP_AWAKE)
     /* keep-awake */
     uint16_t limit = zmk_keep_awake_limit_min();
@@ -115,7 +122,7 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         LOG_WRN("status-info: still typing, ignored");
         return ZMK_BEHAVIOR_OPAQUE;
     }
-    char buf[96];
+    char buf[128];
     build_status(buf, sizeof(buf));
     LOG_INF("status-info: %s", buf);
     send_string_with_delay(buf, 0);
