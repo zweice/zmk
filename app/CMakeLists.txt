@@ -100,6 +100,11 @@ add_subdirectory(src/display/)
 
 
 add_subdirectory_ifdef(CONFIG_ZMK_NRF_24G_ECB src/24G)
+if(CONFIG_ZMK_NRF_24G)
+  # in-order retransmission on top of the closed 2.4G lib, see src/24g_arq.c
+  target_sources(app PRIVATE src/24g_arq.c)
+  zephyr_ld_options(-Wl,--wrap=ring_buf_get)
+endif()
 zephyr_library_include_directories(src/24G)
 
 

@@ -51,19 +51,23 @@ int zmk_hog_send_mouse_report(report_mouse_t *report);
  * throwing away a second, never-sent report.
  *
  * Countermeasures (no change to the library needed):
- *  1. Send every report twice. A duplicate snapshot is a no-op for the host,
- *     but it doubles the retry budget for each state.
+ *  1. In-order retransmission (src/24g_arq.c): the library's "give up" pop is
+ *     intercepted, so an unacknowledged report stays at the head and is
+ *     retried until it gets through. Nothing is sent twice, nothing reordered.
+ *     If the library layout ever doesn't match, fall back to sending every
+ *     report twice (a duplicate snapshot is a no-op for the host).
  *  2. Never let the ring buffer overflow: wait briefly for room instead.
  */
 extern uint32_t ringbuf_used_get(void);
+bool zmk_24g_arq_active(void);
 #define ZMK_24G_RING_SLOTS 64
 #define ZMK_24G_RING_HEADROOM 4
-#define ZMK_24G_REPORT_COPIES 2
-#define ZMK_24G_MAX_WAIT_MS 120
+#define ZMK_24G_MAX_WAIT_MS 500
 
 static int send_24g_reliable(uint8_t *data, uint8_t len) {
     int err = 0;
-    for (int copy = 0; copy < ZMK_24G_REPORT_COPIES; copy++) {
+    int copies = zmk_24g_arq_active() ? 1 : 2;
+    for (int copy = 0; copy < copies; copy++) {
         if (!k_is_in_isr()) {
             for (int waited = 0; waited < ZMK_24G_MAX_WAIT_MS &&
                                  ringbuf_used_get() >= ZMK_24G_RING_SLOTS - ZMK_24G_RING_HEADROOM;
