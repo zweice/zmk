@@ -20,6 +20,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #include <zmk/activity.h>
 #include <zmk/endpoints.h>
+#include <zmk/hid.h>
+#include <dt-bindings/zmk/hid_usage_pages.h>
 #include <zmk/kb_clock.h>
 #include <zephyr/sys/reboot.h>
 #if IS_ENABLED(CONFIG_ZMK_BLE)
@@ -99,6 +101,37 @@ static void disconnect_cb(struct bt_conn *conn, void *data) {
 extern struct k_timer poll_timer; /* Keychron 2.4G lib: drives all ESB traffic */
 #endif
 
+/*
+ * Sleep requests from the radio stacks (set_state(ZMK_ACTIVITY_SLEEP)) are only
+ * honoured after this much keyboard inactivity. Keychron's 2.4G lib schedules
+ * such a request 37 s after the dongle link drops and never cancels it when
+ * the link comes back, so without this guard the keyboard can power off in
+ * the middle of typing. Any key press clears a stale request anyway
+ * (set_state(ACTIVE) below). Battery-low shutdown is not delayed.
+ */
+#define SLEEP_REQUEST_MIN_IDLE_MS 30000
+
+#if CONFIG_ZMK_NRF_24G
+extern uint32_t ringbuf_used_get(void);
+#endif
+
+/* Tell the host that nothing is pressed before going quiet, so no key can be
+ * left "held" on the host side (that is what makes a host auto-repeat). */
+static void release_all_before_sleep(void) {
+    zmk_hid_keyboard_clear();
+    zmk_hid_consumer_clear();
+    zmk_endpoints_send_report(HID_USAGE_KEY);
+    zmk_endpoints_send_report(HID_USAGE_CONSUMER);
+#if CONFIG_ZMK_NRF_24G
+    if (zmk_endpoints_selected().transport == ZMK_TRANSPORT_24G) {
+        /* give the radio a moment to deliver it */
+        for (int waited = 0; waited < 300 && ringbuf_used_get() > 0; waited += 5) {
+            k_msleep(5);
+        }
+    }
+#endif
+}
+
 static void radio_quiet(void) {
     switch (zmk_endpoints_selected().transport) {
 #if CONFIG_ZMK_NRF_24G
@@ -145,10 +178,13 @@ void activity_work_handler(struct k_work *work) {
     int32_t current = k_uptime_get();
     int32_t inactive_time = current - activity_last_uptime;
 #if IS_ENABLED(CONFIG_ZMK_SLEEP)
-    if (!sleep_inhibited && (inactive_time > MAX_SLEEP_MS || activity_state == ZMK_ACTIVITY_SLEEP) && !is_usb_power_present() && all_keys_up()) {
-        bool bat_is_shutdown(void);
+    bool bat_is_shutdown(void);
+    bool sleep_requested = activity_state == ZMK_ACTIVITY_SLEEP &&
+                           (inactive_time > SLEEP_REQUEST_MIN_IDLE_MS || bat_is_shutdown());
+    if (!sleep_inhibited && (inactive_time > MAX_SLEEP_MS || sleep_requested) && !is_usb_power_present() && all_keys_up()) {
         if (zmk_clock_light_sleep() && !bat_is_shutdown()) {
             if (!light_sleeping) {
+                release_all_before_sleep();
                 void leds_turnoff(void);
                 leds_turnoff();
                 radio_quiet();
@@ -159,6 +195,7 @@ void activity_work_handler(struct k_work *work) {
             return;
         }
         // Put devices in suspend power mode before sleeping
+        release_all_before_sleep();
         void leds_turnoff(void);
         leds_turnoff();
         void kscan_gpio_direct_enter_sleep(void);
