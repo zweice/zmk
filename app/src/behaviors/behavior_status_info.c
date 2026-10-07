@@ -1,12 +1,12 @@
 /*
  * Status-info behavior: types a one-line status report at the cursor, e.g.
  *
- *   Akku 73% | Dongle | an seit 3h12m | Keep-Awake an, Rest 12 von 30 min
+ *   19:34 | Battery 73% | Dongle | Up 3h12m | Sleep deep | Keep-awake on, 12 of 30 min left
  *
  * Only plain ASCII without ' " ` ~ ^, so nothing collides with the dead keys
  * of the US-International layout.
  *
- * "an seit" counts from power-on / wake-up from deep sleep (deep sleep is a
+ * "Up" counts from power-on / wake-up from deep sleep (deep sleep is a
  * full power-off on the nRF52, so the uptime starts over).
  *
  * SPDX-License-Identifier: MIT
@@ -55,11 +55,21 @@ static int append(char *buf, size_t size, size_t pos, const char *fmt, ...) {
 static void build_status(char *buf, size_t size) {
     size_t p = 0;
 
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KB_CLOCK)
+    /* clock first */
+    int32_t mins = zmk_clock_minutes_of_day();
+    if (mins >= 0) {
+        p = append(buf, size, p, "%02d:%02d | ", mins / 60, mins % 60);
+    } else {
+        p = append(buf, size, p, "Clock not set | ");
+    }
+#endif
+
     /* battery */
-    p = append(buf, size, p, "Akku %u%%", zmk_battery_state_of_charge());
+    p = append(buf, size, p, "Battery %u%%", zmk_battery_state_of_charge());
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
     if (zmk_usb_is_powered()) {
-        p = append(buf, size, p, " (am Kabel)");
+        p = append(buf, size, p, " (plugged in)");
     }
 #endif
 
@@ -83,15 +93,15 @@ static void build_status(char *buf, size_t size) {
     /* uptime since power-on / wake-up */
     uint32_t up_min = (uint32_t)(k_uptime_get() / 60000);
     if (up_min < 60) {
-        p = append(buf, size, p, " | an seit %u min", up_min);
+        p = append(buf, size, p, " | Up %u min", up_min);
     } else if (up_min < 48 * 60) {
-        p = append(buf, size, p, " | an seit %uh%02um", up_min / 60, up_min % 60);
+        p = append(buf, size, p, " | Up %uh%02um", up_min / 60, up_min % 60);
     } else {
-        p = append(buf, size, p, " | an seit %u Tagen", up_min / (24 * 60));
+        p = append(buf, size, p, " | Up %u days", up_min / (24 * 60));
     }
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KB_CLOCK)
-    p = append(buf, size, p, " | Schlaf %s", zmk_clock_light_sleep() ? "leicht" : "tief");
+    p = append(buf, size, p, " | Sleep %s", zmk_clock_light_sleep() ? "light" : "deep");
 #endif
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KEEP_AWAKE)
@@ -99,16 +109,16 @@ static void build_status(char *buf, size_t size) {
     uint16_t limit = zmk_keep_awake_limit_min();
     if (!zmk_keep_awake_is_active()) {
         if (limit) {
-            p = append(buf, size, p, " | Keep-Awake aus (Limit %u min)", limit);
+            p = append(buf, size, p, " | Keep-awake off (limit %u min)", limit);
         } else {
-            p = append(buf, size, p, " | Keep-Awake aus (ohne Limit)");
+            p = append(buf, size, p, " | Keep-awake off (no limit)");
         }
     } else {
         int32_t left = zmk_keep_awake_remaining_min();
         if (left >= 0) {
-            p = append(buf, size, p, " | Keep-Awake an, Rest %d von %u min", left, limit);
+            p = append(buf, size, p, " | Keep-awake on, %d of %u min left", left, limit);
         } else {
-            p = append(buf, size, p, " | Keep-Awake an, ohne Limit");
+            p = append(buf, size, p, " | Keep-awake on, no limit");
         }
     }
 #endif
