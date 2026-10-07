@@ -40,6 +40,13 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
 uint8_t behavior_queue_is_full(void);
+uint32_t zmk_activity_keypresses(void);
+#if CONFIG_ZMK_NRF_24G
+bool zmk_24g_arq_active(void);
+uint32_t zmk_24g_arq_rescued(void);
+uint32_t zmk_24g_arq_lost(void);
+uint32_t zmk_24g_arq_sent(void);
+#endif
 
 static int append(char *buf, size_t size, size_t pos, const char *fmt, ...) {
     if (pos >= size) {
@@ -85,6 +92,12 @@ static void build_status(char *buf, size_t size) {
 #endif
     case ZMK_TRANSPORT_24G:
         p = append(buf, size, p, " | Dongle");
+#if CONFIG_ZMK_NRF_24G
+        if (zmk_24g_arq_active()) {
+            p = append(buf, size, p, " (%u sent, %u rescued, %u lost)", zmk_24g_arq_sent(),
+                       zmk_24g_arq_rescued(), zmk_24g_arq_lost());
+        }
+#endif
         break;
     default:
         break;
@@ -93,11 +106,13 @@ static void build_status(char *buf, size_t size) {
     /* uptime since power-on / wake-up */
     uint32_t up_min = (uint32_t)(k_uptime_get() / 60000);
     if (up_min < 60) {
-        p = append(buf, size, p, " | Up %u min", up_min);
+        p = append(buf, size, p, " | Up %u min, %u keys", up_min, zmk_activity_keypresses());
     } else if (up_min < 48 * 60) {
-        p = append(buf, size, p, " | Up %uh%02um", up_min / 60, up_min % 60);
+        p = append(buf, size, p, " | Up %uh%02um, %u keys", up_min / 60, up_min % 60,
+                   zmk_activity_keypresses());
     } else {
-        p = append(buf, size, p, " | Up %u days", up_min / (24 * 60));
+        p = append(buf, size, p, " | Up %u days, %u keys", up_min / (24 * 60),
+                   zmk_activity_keypresses());
     }
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_KB_CLOCK)
@@ -132,7 +147,7 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         LOG_WRN("status-info: still typing, ignored");
         return ZMK_BEHAVIOR_OPAQUE;
     }
-    char buf[128];
+    char buf[160];
     build_status(buf, sizeof(buf));
     LOG_INF("status-info: %s", buf);
     send_string_with_delay(buf, 0);

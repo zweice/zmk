@@ -46,24 +46,43 @@ extern void ringbuf_msg_get(void);
 
 uint32_t __real_ring_buf_get(struct ring_buf *buf, uint8_t *data, uint32_t size);
 
+#define SUCCESS_BL_OFFSET 0xd6 /* bl ringbuf_msg_get after an acknowledged transmission */
+#define OVERFLOW_BL_OFFSET 0x3c /* bl ringbuf_msg_get in ringbuf_msg_put (ring full) */
+extern void ringbuf_msg_put(void);
+
 static bool arq_ok;
 static uint8_t held_rounds;
-static uint32_t held_total; /* statistics, visible in the log */
+
+/* statistics since power-on / wake-up, shown in the Fn+- status line */
+static uint32_t stat_rescued; /* reports the lib would have dropped, delivered after extra rounds */
+static uint32_t stat_lost;    /* reports dropped anyway (link down > ~1 s, or ring overflow) */
+static uint32_t stat_sent;    /* reports handed to the lib */
 
 bool zmk_24g_arq_active(void) { return arq_ok; }
+uint32_t zmk_24g_arq_rescued(void) { return stat_rescued; }
+uint32_t zmk_24g_arq_lost(void) { return stat_lost; }
+uint32_t zmk_24g_arq_sent(void) { return stat_sent; }
+void zmk_24g_arq_count_sent(void) { stat_sent++; }
 
 uint32_t __wrap_ring_buf_get(struct ring_buf *buf, uint8_t *data, uint32_t size) {
     if (arq_ok && buf == &zmk_24g_msgs) {
         uintptr_t ret = (uintptr_t)__builtin_return_address(0);
-        uintptr_t give_up = (uintptr_t)poll_timer_expiry_function + GIVE_UP_BL_OFFSET + BL_LEN;
-        if (ret == give_up) {
+        uintptr_t poll = (uintptr_t)poll_timer_expiry_function;
+        if (ret == poll + GIVE_UP_BL_OFFSET + BL_LEN) {
             if (held_rounds < ZMK_24G_ARQ_EXTRA_ROUNDS) {
                 held_rounds++;
-                held_total++;
                 /* leave the report at the head; the library retries it */
                 return ring_buf_peek(buf, data, size);
             }
             LOG_WRN("2.4G: report dropped after %u extra retry rounds", held_rounds);
+            stat_lost++;
+        } else if (ret == poll + SUCCESS_BL_OFFSET + BL_LEN) {
+            if (held_rounds) {
+                stat_rescued++;
+            }
+        } else if (ret == (uintptr_t)ringbuf_msg_put + OVERFLOW_BL_OFFSET + BL_LEN) {
+            /* overflow drops the oldest report and does not queue the new one */
+            stat_lost += 2;
         }
         held_rounds = 0;
     }

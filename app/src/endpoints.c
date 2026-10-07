@@ -60,6 +60,7 @@ int zmk_hog_send_mouse_report(report_mouse_t *report);
  */
 extern uint32_t ringbuf_used_get(void);
 bool zmk_24g_arq_active(void);
+void zmk_24g_arq_count_sent(void);
 #define ZMK_24G_RING_SLOTS 64
 #define ZMK_24G_RING_HEADROOM 4
 #define ZMK_24G_MAX_WAIT_MS 500
@@ -76,6 +77,9 @@ static int send_24g_reliable(uint8_t *data, uint8_t len) {
             }
         }
         err = zmk_24g_send_report(data, len);
+        if (!err) {
+            zmk_24g_arq_count_sent();
+        }
         if (err) {
             /* not connected / pairing / buffer still full: don't pile up copies */
             break;

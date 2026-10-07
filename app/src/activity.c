@@ -86,6 +86,10 @@ enum zmk_activity_state zmk_activity_get_state() { return activity_state; }
  */
 static bool light_sleeping;
 
+/* key presses since power-on / wake-up, for the Fn+- status line */
+static uint32_t keypresses;
+uint32_t zmk_activity_keypresses(void) { return keypresses; }
+
 #if IS_ENABLED(CONFIG_ZMK_BLE)
 static void disconnect_cb(struct bt_conn *conn, void *data) {
     bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
@@ -129,6 +133,7 @@ int activity_event_listener(const zmk_event_t *eh) {
     {
         if(pos_state->state)
         {
+            keypresses++;
             void bat_low_check(void);
             bat_low_check();
         }
