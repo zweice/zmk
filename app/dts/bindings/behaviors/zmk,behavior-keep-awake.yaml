@@ -14,3 +14,8 @@ properties:
   interval-ms:
     type: int
     default: 30000
+    description: Minimum time between two taps
+  idle-ms:
+    type: int
+    default: 30000
+    description: Only tap after this long without any physical key press or release

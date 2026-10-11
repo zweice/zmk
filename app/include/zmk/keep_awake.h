@@ -13,3 +13,5 @@ bool zmk_keep_awake_is_active(void);
 uint16_t zmk_keep_awake_limit_min(void);
 /* Minutes left before the limit stops it, or -1 if inactive or unlimited. */
 int32_t zmk_keep_awake_remaining_min(void);
+/* F24 taps sent since keep-awake was switched on. */
+uint32_t zmk_keep_awake_taps(void);

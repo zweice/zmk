@@ -4,9 +4,19 @@
  *   &keep_awake KA_TOG    start / stop
  *   &keep_awake KA_CYCLE  cycle the time limit: 10 -> 30 -> 60 min -> unlimited
  *
- * While active, taps an otherwise unused key (F24 by default) every
- * `interval-ms`, so the host's idle timer resets and Windows neither locks the
- * screen nor goes to sleep.
+ * While active, taps an otherwise unused key (F24 by default) so the host's
+ * idle timer resets and Windows neither locks the screen nor goes to sleep.
+ *
+ * The tap never mixes with real typing:
+ *  - Idle gate: it is only sent after `idle-ms` (30 s) without any physical
+ *    key press or release, at most every `interval-ms`. While you type, real
+ *    key strokes keep the PC awake anyway, so no tap is needed.
+ *  - Clean report: it is skipped while any key or modifier is held, or while
+ *    the firmware itself is typing (status line, clock, macros).
+ *  - Atomic: press and release are sent back to back inside one work item.
+ *    Physical key events are processed on the same (single-threaded) system
+ *    work queue, so none can be handled in between - F24 can never share a
+ *    report with another key, and no real key is ever delayed.
  *
  * Stops on its own after the selected time limit (default 10 min, stored in
  * flash), on USB, Bluetooth and the 2.4G dongle alike. The window starts when
@@ -45,15 +55,19 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define KA_KEY DT_INST_PROP(0, keycode)
 #define KA_INTERVAL_MS DT_INST_PROP(0, interval_ms)
-#define KA_TAP_MS 20
+#define KA_IDLE_MS DT_INST_PROP(0, idle_ms)
+#define KA_BUSY_RETRY_MS 1000
 
 /* Wireless time limits in minutes; 0 = unlimited. */
 static const uint16_t limits_min[] = {10, 30, 60, 0};
 static uint8_t limit_idx; /* persisted */
 
 static bool active;
-static bool key_down;
 static int64_t started_at;
+static int64_t last_tap_at;
+static uint32_t taps; /* since keep-awake was switched on */
+
+bool zmk_behavior_queue_busy(void);
 
 /* implemented in leds.c (blue/BT LED used as indicator) */
 void led_keep_awake_set(bool on);
@@ -104,19 +118,35 @@ int32_t zmk_keep_awake_remaining_min(void) {
     return left_ms <= 0 ? 0 : (int32_t)((left_ms + 59999) / 60000);
 }
 
-static void release_key(void) {
-    if (key_down) {
-        zmk_hid_keyboard_release(KA_KEY);
-        zmk_endpoints_send_report(HID_USAGE_KEY);
-        key_down = false;
+uint32_t zmk_keep_awake_taps(void) { return taps; }
+
+/* nothing held: no key, no modifier (physically or by the firmware) */
+static bool keyboard_report_empty(void) {
+    const struct zmk_hid_keyboard_report *r = zmk_hid_get_keyboard_report();
+    if (r->body.modifiers) {
+        return false;
     }
+    for (size_t i = 0; i < sizeof(r->body.keys); i++) {
+        if (r->body.keys[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* press + release back to back; see the header comment for why this is atomic */
+static void tap(void) {
+    zmk_hid_keyboard_press(KA_KEY);
+    zmk_endpoints_send_report(HID_USAGE_KEY);
+    zmk_hid_keyboard_release(KA_KEY);
+    zmk_endpoints_send_report(HID_USAGE_KEY);
+    taps++;
 }
 
 static void stop(void) {
     active = false;
     k_work_cancel_delayable(&keep_awake_work);
     k_work_cancel_delayable(&led_restore_work);
-    release_key();
     led_keep_awake_set(false);
     zmk_activity_inhibit_sleep(false);
     LOG_INF("keep-awake off");
@@ -127,25 +157,40 @@ static void keep_awake_work_handler(struct k_work *work) {
         return;
     }
 
-    if (key_down) {
-        /* second half of the tap */
-        release_key();
-        led_keep_awake_refresh();
-        k_work_schedule(&keep_awake_work, K_MSEC(KA_INTERVAL_MS - KA_TAP_MS));
-        return;
-    }
-
+    int64_t now = k_uptime_get();
     uint16_t limit = limits_min[limit_idx];
-    if (limit && (k_uptime_get() - started_at) >= (int64_t)limit * 60 * 1000) {
+    int64_t limit_ms = (int64_t)limit * 60 * 1000;
+    if (limit && now - started_at >= limit_ms) {
         LOG_INF("keep-awake: limit of %u min reached", limit);
         stop();
         return;
     }
 
-    zmk_hid_keyboard_press(KA_KEY);
-    zmk_endpoints_send_report(HID_USAGE_KEY);
-    key_down = true;
-    k_work_schedule(&keep_awake_work, K_MSEC(KA_TAP_MS));
+    int64_t idle = now - zmk_activity_last_key_ms();
+    int64_t since_tap = now - last_tap_at;
+    int64_t wait;
+    if (idle < KA_IDLE_MS) {
+        wait = KA_IDLE_MS - idle; /* still typing: real keys keep the PC awake */
+    } else if (since_tap < KA_INTERVAL_MS) {
+        wait = KA_INTERVAL_MS - since_tap;
+    } else if (!keyboard_report_empty() || zmk_behavior_queue_busy()) {
+        wait = KA_BUSY_RETRY_MS; /* something held or being typed: try again shortly */
+    } else {
+        tap();
+        last_tap_at = now;
+        wait = KA_INTERVAL_MS;
+    }
+
+    /* wake up in time to honour the limit */
+    if (limit) {
+        int64_t left = limit_ms - (now - started_at);
+        if (left < wait) {
+            wait = left;
+        }
+    }
+
+    led_keep_awake_refresh();
+    k_work_schedule(&keep_awake_work, K_MSEC(MAX(wait, 50)));
 }
 
 static void toggle(void) {
@@ -155,6 +200,8 @@ static void toggle(void) {
     }
     active = true;
     started_at = k_uptime_get();
+    last_tap_at = started_at - KA_INTERVAL_MS; /* only the idle gate counts for the first tap */
+    taps = 0;
     LOG_INF("keep-awake on (limit %u min, 0 = unlimited)", limits_min[limit_idx]);
     led_keep_awake_set(true);
     zmk_activity_inhibit_sleep(true);

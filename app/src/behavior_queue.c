@@ -77,3 +77,9 @@ uint8_t behavior_queue_is_full(void)
 {
     return (k_msgq_num_used_get(&zmk_behavior_queue_msgq)>(CONFIG_ZMK_BEHAVIORS_QUEUE_SIZE-32))?1:0;
 }
+
+/* true while queued behaviors (macros, typed status lines, ...) are still being played */
+bool zmk_behavior_queue_busy(void) {
+    return k_msgq_num_used_get(&zmk_behavior_queue_msgq) > 0 ||
+           k_work_delayable_is_pending(&queue_work);
+}

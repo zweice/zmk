@@ -92,6 +92,10 @@ static bool light_sleeping;
 static uint32_t keypresses;
 uint32_t zmk_activity_keypresses(void) { return keypresses; }
 
+/* uptime of the last physical key press or release (keep-awake idle gate) */
+static int64_t last_key_ms;
+int64_t zmk_activity_last_key_ms(void) { return last_key_ms; }
+
 #if IS_ENABLED(CONFIG_ZMK_BLE)
 static void disconnect_cb(struct bt_conn *conn, void *data) {
     bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
@@ -164,6 +168,7 @@ int activity_event_listener(const zmk_event_t *eh) {
     }
     if(pos_state)
     {
+        last_key_ms = k_uptime_get();
         if(pos_state->state)
         {
             keypresses++;

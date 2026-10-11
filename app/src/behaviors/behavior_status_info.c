@@ -135,6 +135,7 @@ static void build_status(char *buf, size_t size) {
         } else {
             p = append(buf, size, p, " | Keep-awake on, no limit");
         }
+        p = append(buf, size, p, ", %u taps", zmk_keep_awake_taps());
     }
 #endif
 }
