@@ -12,7 +12,8 @@
  *    key press or release, at most every `interval-ms`. While you type, real
  *    key strokes keep the PC awake anyway, so no tap is needed.
  *  - Clean report: it is skipped while any key or modifier is held, or while
- *    the firmware itself is typing (status line, clock, macros).
+ *    the firmware itself is typing (status line, clock, macros); the 30 s
+ *    window then simply starts over.
  *  - Atomic: press and release are sent back to back inside one work item.
  *    Physical key events are processed on the same (single-threaded) system
  *    work queue, so none can be handled in between - F24 can never share a
@@ -56,7 +57,6 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define KA_KEY DT_INST_PROP(0, keycode)
 #define KA_INTERVAL_MS DT_INST_PROP(0, interval_ms)
 #define KA_IDLE_MS DT_INST_PROP(0, idle_ms)
-#define KA_BUSY_RETRY_MS 1000
 
 /* Wireless time limits in minutes; 0 = unlimited. */
 static const uint16_t limits_min[] = {10, 30, 60, 0};
@@ -174,7 +174,9 @@ static void keep_awake_work_handler(struct k_work *work) {
     } else if (since_tap < KA_INTERVAL_MS) {
         wait = KA_INTERVAL_MS - since_tap;
     } else if (!keyboard_report_empty() || zmk_behavior_queue_busy()) {
-        wait = KA_BUSY_RETRY_MS; /* something held or being typed: try again shortly */
+        /* a key held for > idle-ms (or firmware still typing): start the window over.
+         * Releasing the key is a key event, which resets the idle gate anyway. */
+        wait = KA_IDLE_MS;
     } else {
         tap();
         last_tap_at = now;
